@@ -1,1 +1,28 @@
+>Cd dockerfolder
+>oarsub -l walltime=3:00 -I
+>docker run -v /yourfolder/:/dockerfolder/ --rm -t ncbi/sra-tools:2.11.1 fasterq-dump SRR1657525# input sample
+>docker run -v /yourfolder/:/dockerfolder/ --rm -t ncbi/sra-tools:2.11.1 fasterq-dump SRR1657525# chip-seq sample
+>Cp -r /mnt/share/acmo/AppCOmics_data/Genomes ./Filipa/
+
+#copiar o genoma para a pasta align both samples (ChIP and input) to the human genome (GRChg38):
+>docker run -v $PWD:$PWD -w=$PWD --rm biocontainers/bowtie2:v2.4.1_cv1 bowtie2 -k 1 --threads 10 -x ./Genomes/GRCh38_noalt_as/GRCh38_noalt_as -U ./ChIPseq/SRR8758301.fastq -S FOXO1_ChIPseq.sam
+
+> docker run -v $PWD:$PWD -w=$PWD --rm miguelpmachado/sambamba:0.7.1-01 sambamba view -t 10 -S -f bam FOXO1_ChIPseq.sam -o temp.bam#transformar de sam para bam
+> docker run -v $PWD:$PWD -w=$PWD --rm miguelpmachado/sambamba:0.7.1-01 sambamba sort -t 10 -o FOXO1_ChIPseq.bam temp.bam#fazer o sort
+
+#DO THE CALLING PEAK
+> docker run -v $PWD:$PWD -w=$PWD --rm resolwebio/chipseq:5.1.3 macs2 callpeak -t FOXO1_ChIPseq.bam -c ./ChIPseq/input_ChIPseq.bam -f BAM -g 2.7e9 -q 0.05 -n FOXO1 --outdir macs2 
+
+#Filter out blacklisted regions from ChIPseq results
+> docker run -v $PWD:$PWD -w=$PWD -- rm biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1 bedtools intersect -v -a ./macs2Output/FOXO1_peaks.narrowPeak -b ./Genomes/ hg38.blacklist.bed > FOXO1_peaks_filtered.bed
+> docker run -v $PWD:$PWD -w=$PWD -- rm biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1 bedtools intersect -v -a ./macs2Output/FOXO1_summits.bed -b ./Genomes/ hg38.blacklist.bed > FOXO1_summits_filtered.bed
+
+#Identify enriched motifs in ChIPseq peaks #utilizamos com o summit que é onde estão os motifs:
+> docker run -v $PWD:$PWD -w=$PWD –rm biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1 bedtools slop -i FOXO1_summits.bed -g ./Genomes/genomeSize.txt -b 200 >FOXO1_motifs.bed
+
+#get the DNA sequences for each peak summit using the function “getFasta” from Bedtools: #devolve o fasta
+> docker run -v $PWD:$PWD -w=$PWD –rm biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1 bedtools getfasta -fi ./Genomes/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna -bed FOXO1_motifs.bed > FOXO1_motifs_sequences.fasta 
+
+#perform the motif enrichment analysis: 
+docker run -v $PWD:$PWD -w=$PWD -- rm nfcore/chipseq:latest findMotifs.pl FOXO1_motifs_sequences.fasta motif_enrichment_output/ -fasta gencode.v26.annotation_promoters.fasta
 
