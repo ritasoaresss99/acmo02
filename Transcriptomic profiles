@@ -1,1 +1,113 @@
+#########################################################################################################################
+# Install packages from R and BioConductor repositories ####
+#########################################################################################################################
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("tximport")
+BiocManager::install("rhdf5")
+BiocManager::install("PCAtools")
+
+install.packages("gplots")
+install.packages("RColorBrewer")
+install.packages("openxlsx")
+
+#########################################################################################################################
+# Import read counts to R ####
+# We will import the read counts obtained with Kallisto (Tutorial 3) using the tximport R package
+#########################################################################################################################
+
+library(tximport)
+
+# First, set the R working directory to the folder containing Kallisto results 
+setwd("C:/Users/Utilizador/OneDrive/Documentos/MCBBi/2º semestre/Applied Computational Multi-Omics/Group Project") #Complete with the path in your computer
+
+# Load the file containing the EnsemblIDs and gene names
+load("gencode.v38_geneInfo.RData");
+head(geneInfo)
+
+# Define filenames to import
+folders <- dir(pattern="_rep")
+fileNames <- file.path(".", folders, 'abundance.tsv');
+names(fileNames) <- folders 
+
+# Import all data using tximport function
+readCounts_gene <- tximport(fileNames, type = 'kallisto',txOut = F,tx2gene=geneInfo[,1:2], ignoreTxVersion = T,countsFromAbundance = "lengthScaledTPM")
+
+# Explore the object created with tximport
+names(readCounts_gene)
+head(readCounts_gene$abundance)
+head(readCounts_gene$counts)
+head(readCounts_gene$length)
+head(readCounts_gene$countsFromAbundance)
+
+# To facilitate interpretation of downstream results, replace EnsemblIDs with Official gene symbol (i.s gene name)
+geneNames <- geneInfo[match(rownames(readCounts_gene$abundance), geneInfo$Ensembl_GeneID),"GeneSymbol"]
+rownames(readCounts_gene$abundance) <- rownames(readCounts_gene$counts) <- geneNames
+head(readCounts_gene$abundance)
+head(readCounts_gene$counts)
+
+
+# Save readCounts in an RData file for downstream analyses
+save(readCounts_gene, file="readCounts_gene.RData")
+
+#########################################################################################################################
+# Explore transcriptome profiles using PCA ####
+#########################################################################################################################
+
+library(PCAtools)
+
+# Prepare gene expression matrix for PCA analysis: Step 1) get log TPMs (we add 1 TPM to each gene to avoid infinite values after log)
+logTPMs <- log2(readCounts_gene$abundance+1)
+
+# Prepare gene expression matrix for PCA analysis: Step 2) remove duplicated genes
+uniqueGenes <- unique(rownames(logTPMs))
+logTPMs <- logTPMs[uniqueGenes,]
+
+
+#Prepare metadata with sample type
+sampleTypes <- gsub("_rep[123]", "", colnames(logTPMs))
+metaData <- data.frame(sampleTypes); rownames(metaData) <- colnames(logTPMs)
+metaData
+
+
+#Run PCA
+pca.res <- pca(logTPMs, metadata=metaData)
+
+#Plot variance explained by each component
+screeplot(pca.res)
+
+#Plot 2 selected components/eigenvectors
+biplot(pca.res)
+biplot(pca.res, colby="sampleTypes", hline = 0, vline = 0,legendPosition = 'top') # Biplot with colors by sample type
+biplot(pca.res, lab="", colby="sampleTypes", hline = 0, vline = 0,legendPosition = 'top') # Biplot without sample names
+biplot(pca.res, x="PC1", y="PC3",lab="",colby="sampleTypes", hline = 0, vline = 0,legendPosition = 'top') # Biplot with PC1 and PC3
+
+
+#Plot several components
+pairsplot(pca.res, colby="sampleTypes",components = 1:4)
+
+# Plot the component loadings and label genes most responsible for variation
+# NOTE: Loadings are interpreted as the coefficients of the linear combination of the initial variables from which the principal components are constructed.
+# From a statistical point of view, the loadings are equal to the coordinates of the variables divided by the square root of the eigenvalue associated with the component.
+PC_genes <- pca.res$loadings
+PC1_genes <- PC_genes[order(PC_genes$PC1, decreasing=T),]
+head(PC1_genes)
+tail(PC1_genes)
+plotloadings(pca.res, components = c("PC1", "PC2", "PC3"),rangeRetain =0.1,col=c("yellowgreen","slateblue","white")) #retaining 1% of the loadings per PC
+
+# Produce barplot to confirm expression levels of genes associated with Principal Component 1
+plotCol <- rep(c("yellowgreen", "gray"), each=3)
+barplot(logTPMs["RPS23P8",], col=plotCol, las=2, main="RPS23P8", ylab="Expression levels (logTPMs)") #Gene positively correlated with PC1
+legend("topleft", fill=unique(plotCol), legend=c("actFOXO1","ctrl"), bty="n")
+barplot(logTPMs["RPS26P58",], col=plotCol, las=2, main="RPS26P58", ylab="Expression levels (logTPMs)") #Gene negatively correlated with PC1
+legend("topright", fill=unique(plotCol), legend=c("actFOXO1","ctrl"), bty="n")
+
+
+# You can save some plot in a pdf file
+pdf("PCA_plots.pdf") # open pdf file
+biplot(pca.res, colby="sampleTypes", hline = 0, vline = 0,legendPosition = 'top') # Biplot with colors by sample type
+plotloadings(pca.res, components = c("PC1", "PC2", "PC3"),rangeRetain =0.1) 
+dev.off() # closes pdf file
+
 
