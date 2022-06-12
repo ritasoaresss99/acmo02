@@ -11,6 +11,7 @@ gr1 <- GRanges(seqnames=df1$V1, ranges=IRanges(start=df1$V2, end=df1$V3))
 ##############
 ##annotation##
 ##############
+
 library("EnsDb.Hsapiens.v86")
 
 ## create annotation file from EnsDb (Ensembl) or TxDb (transcript annotation) packages
@@ -28,9 +29,9 @@ anno.gr1 <- annotatePeakInBatch(gr1,
 #trim out of bound ranges
 anno.gr1 <- trim(anno.gr1)
 
-#######################################
-#INTERSECTION OF DEGs AND ChIP RESULTS#
-#######################################
+################################################
+#INTERSECTION OF THE DEGs WITH THE ChIP RESULTS#
+################################################
 
 DEgs=readxl::read_xlsx("DEGs.xlsx")
 venn=intersect(unlist(DEgs$...1),unlist(anno.gr1$gene_name))
@@ -71,16 +72,16 @@ library("VennDiagram")
 
 #venn diagram with RNAseq DEGs and CHiPseq binding sites (save in TIFF format)
 draw.pairwise.venn(
-  area1 = 14034,
-  area2 = 16583,
+  area1 = 16583, #ChIP
+  area2 = 2339, #DEGs
   cross.area = 1351,
-  category = c("DEGs", "Binding Sites"),
+  category = c("Binding Sites", "DEGs"),
   fill = c( "yellowgreen", "slateblue"), lty = "blank",
   cex = 2,
   cat.cex = 2,
   cat.pos = c(310, 105),
   cat.dist = 0.09,
-  cat.just = list(c( 0.4, -1), c( 1,-11)),
+  cat.just = list(c( -0.7, -1), c( 4,-9.5)),
   ext.pos = 30,
   ext.dist = -0.05,
   ext.length = 0.85,
