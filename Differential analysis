@@ -1,1 +1,167 @@
+#########################################################################################################################
+# Differential expression analysis using edge R package ####
+#########################################################################################################################
+
+
+library(edgeR)
+
+# Create DGEList data class (specific for edgeR package)
+y <- DGEList(counts=readCounts_gene$counts, group= sampleTypes)
+
+
+# Filter out lowly expressed genes
+keep <- filterByExpr(y, group=sampleTypes)
+y <- y[keep, ,keep.lib.sizes=FALSE]
+
+# Normalize for library sizes
+y <- calcNormFactors(y)
+y$samples
+
+
+# Define the design and contrast matrix based on the experimental design, meaning define which comparison to be made
+# See more detailed information here: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7873980/
+design_matrix <- model.matrix(~0+sampleTypes)
+colnames(design_matrix) <- gsub("sampleTypes", "", colnames(design_matrix))
+rownames(design_matrix) <- colnames(logTPMs)
+design_matrix
+contrast_matrix <- makeContrasts(JMJD1C63-ctrl, levels = design_matrix)
+contrast_matrix
+
+
+# Estimate the dispersion (Biological coefficient of variation) and Fit model
+# edgeR uses the negative binomial (NB) distribution to model the read counts for each gene in each sample. The dispersion parameter of the NB distribution accounts for variability between biological replicates (McCarthy, Chen, and Smyth 2012). edgeR estimates an empirical Bayes moderated dispersion for each individual gene. It also estimates a common dispersion, which is a global dispersion estimate averaged over all genes, and a trended dispersion where the dispersion of a gene is predicted from its abundance.
+# The vertical axis of the plotBCV plot shows square-root dispersion, also known as biological coefficient of variation (BCV) (McCarthy, Chen, and Smyth 2012).
+# For RNA-seq studies, the NB dispersions tend to be higher for genes with very low counts. The dispersion trend tends to decrease smoothly with abundance and to asymptotic to a constant value for genes with larger counts. From our past experience, the asymptotic value for the BCV tends to be in range from 0.05 to 0.2 for genetically identical mice or cell lines, whereas somewhat larger values (>0.3) are observed for human subjects.
+y <- estimateDisp(y, design_matrix)
+plotBCV(y)
+fit <- glmQLFit(y,design_matrix) # Fit a quasi-likelihood negative binomial generalized log-linear model to count data. 
+
+
+# Differential expression analysis
+qlf <- glmQLFTest(fit, contrast =  contrast_matrix) # test for differential expression between the experimental groups using quasi-likelihood F-test
+
+# Get differentially expressed genes (DEGs)
+summary(decideTests(qlf,p.value = 0.05,adjust.method = "fdr"))
+DEGs <- topTags(qlf, nrow(qlf$table), p.value=0.05, adjust.method = "fdr")$table
+upReg <- rownames(DEGs)[which(DEGs$logFC > 0)]
+downReg <- rownames(DEGs)[which(DEGs$logFC < 0)]
+
+# Write table with DEGs
+library(openxlsx)
+write.xlsx(DEGs, file = "DEGs.xlsx", rowNames=T)
+
+# Produce Volcano Plot (customized)
+allGenes <- topTags(qlf, n = nrow(qlf$table), p.value = 1)$table
+plotData <- cbind(allGenes$logFC, -log10(allGenes$FDR)); rownames(plotData) <- rownames(allGenes)
+plot(plotData, pch=20,col="gray",xlab="Biological Variation (log2 Fold-Change)", ylab="Statistical Significance (-log10 P-Value)")
+abline(h=-log10(0.05), v=c(-1,1),lty=2)
+points(plotData[upReg,], col="yellowgreen", pch=20)
+points(plotData[downReg,], col="darkorchid3", pch=20)
+points(plotData["JMJD1C",1], plotData["JMJD1C",2], col="red", pch=20,cex=2)
+text(plotData["JMJD1C",1],plotData["JMJD1C",2], labels="JMJD1C",col="red", pos=sample(c(1:3), size=10, replace=T), cex=0.8)
+legend(x=-10,y=0.5,legend=c("Down-regulated genes","Up-regulated genes"),fill=c("darkorchid3","yellowgreen"))
+
+# Produce MA plot (customized)
+plotData <- cbind(allGenes$logCPM, allGenes$logFC); rownames(plotData) <- rownames(allGenes)
+plot(plotData, pch=20,col="gray",xlab="Mean Expression Levels (log CPMs)", ylab="Biological Variation (log2 Fold-Change)")
+abline(h=c(-1,1),lty=2)
+points(plotData[upReg,], col="yellowgreen", pch=20)
+points(plotData[downReg,], col="darkorchid3", pch=20)
+points(plotData["JMJD1C",1], plotData["JMJD1C",2], col="red", pch=20,cex=2)
+text(plotData["JMJD1C",1],plotData["JMJD1C",2], labels="JMJD1C",col="red", pos=sample(c(1:3), size=10, replace=T), cex=0.8)
+legend(x=8,y=-5,legend=c("Down-regulated genes","Up-regulated genes"),fill=c("darkorchid3","yellowgreen"))
+
+
+### ChIP-Seq
+
+library(ChIPpeakAnno)
+
+#read in the bed file
+df1<-read.table("JMJD1C_peaks_filtered.bed", header=FALSE)
+
+#convert the peaks to a GRanges object
+gr1 <- GRanges(seqnames=df1$V1, ranges=IRanges(start=df1$V2, end=df1$V3))
+
+##annotation
+library("EnsDb.Hsapiens.v86")
+
+## create annotation file from EnsDb (Ensembl) or TxDb (transcript annotation) packages
+
+annoData <- toGRanges(EnsDb.Hsapiens.v86, feature="gene")
+annoData[1:2]
+
+# annotate the peak GRanges object with peaks mapped to gene with a -2000 and 500 bp window around the TSS
+
+anno.gr1 <- annotatePeakInBatch(gr1, 
+                                AnnotationData=annoData, 
+                                output="nearestBiDirectionalPromoters",
+                                bindingRegion=c(-2000, 500))
+
+#trim out of bound ranges
+anno.gr1 <- trim(anno.gr1)
+
+###
+DEgs=readxl::read_xlsx("DEGs.xlsx")
+venn=intersect(unlist(DEgs$...1),unlist(anno.gr1$gene_name))
+
+library(data.table)
+
+downreg=fread("table_downregulated.txt")
+upreg=fread("table_upregulated.txt")
+
+gene_nombre=as.data.frame(anno.gr1$gene_name)
+inside_feature=as.data.frame(anno.gr1$insideFeature)
+nombre_feature=cbind(gene_nombre,inside_feature)
+
+
+upstream <- as.data.frame(nombre_feature$`anno.gr1$gene_name`[which(nombre_feature$`anno.gr1$insideFeature` == "upstream")])
+inside <- as.data.frame(nombre_feature$`anno.gr1$gene_name`[which(nombre_feature$`anno.gr1$insideFeature` == "inside")]) #peak is inside the gene
+overlapStart <- as.data.frame(nombre_feature$`anno.gr1$gene_name`[which(nombre_feature$`anno.gr1$insideFeature` == "overlapStart")])
+includeFeature <- as.data.frame(nombre_feature$`anno.gr1$gene_name`[which(nombre_feature$`anno.gr1$insideFeature` == "includeFeature")]) #peak is larger than the gene
+
+downreg_upstream=length(intersect(unlist(downreg),unlist(upstream)))
+upreg_upstream=length(intersect(unlist(upreg),unlist(upstream)))
+
+downreg_inside=length(intersect(unlist(downreg),unlist(inside)))
+upreg_inside=length(intersect(unlist(upreg),unlist(inside)))
+
+downreg_overlapStart=length(intersect(unlist(downreg),unlist(overlapStart)))
+upreg_overlapStart=length(intersect(unlist(upreg),unlist(overlapStart)))
+
+downreg_includeFeature=length(intersect(unlist(downreg),unlist(includeFeature)))
+upreg_includeFeature=length(intersect(unlist(upreg),unlist(includeFeature)))
+
+downreg_intersect=intersect(unlist(venn),unlist(downreg))
+upreg_intersect=intersect(unlist(venn),unlist(upreg))
+
+#we didn't see any tendency/relation for the binding site location and gene expression
+
+library("VennDiagram")
+
+#venn diagram with RNAseq DEGs and CHiPseq binding sites (save in TIFF format)
+draw.pairwise.venn(
+  area1 = 14034,
+  area2 = 16583,
+  cross.area = 1351,
+  category = c("DEGs", "Binding Sites"),
+  fill = c( "yellowgreen", "slateblue"), lty = "blank",
+  cex = 2,
+  cat.cex = 2,
+  cat.pos = c(310, 105),
+  cat.dist = 0.09,
+  cat.just = list(c( 0.4, -1), c( 1,-11)),
+  ext.pos = 30,
+  ext.dist = -0.05,
+  ext.length = 0.85,
+  ext.line.lwd = 2,
+  ext.line.lty = "dashed" , scaled = FALSE
+)
+
+library(gplots); library(RColorBrewer)
+plotCol_exp <- brewer.pal(9, "Purples")[-1]
+plotCol <- rep(c("yellowgreen", "gray"), each=2)
+par(oma=c(0,0,0,6))
+heatmap.2(logTPMs[c(upreg_intersect[1:10], downreg_intersect[1:10]),], scale="row", trace="none", density.info="none", ColSideColors = plotCol, col=plotCol_exp,labCol="")
+heatmap.2(logTPMs[c(upreg_intersect[1:10], downreg_intersect[1:10]),], scale="none", trace="none", density.info="none", ColSideColors = plotCol, col=plotCol_exp,labCol="")
+
 
