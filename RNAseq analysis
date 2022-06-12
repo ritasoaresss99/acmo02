@@ -1,1 +1,27 @@
+#CONNECT TO THE COMPUTER CLUSTER
 
+#CREATE A FOLDER TO SAVE YOUR DATA
+> mkdir <folderName>
+> cd <folderName>
+
+#GET THE RAW DATA AND THE TRANSCRIPTOME:
+#A.THE CONTROL SAMPLES:
+>ln -s /mnt/share/acmo/AppCOmics_data/RNAseq/rawData/SRR1657527.fastq #Control_rep1
+>ln -s /mnt/share/acmo/AppCOmics_data/RNAseq/rawData/SRR1657528.fastq #Control_rep2
+
+#B. THE KNOCK-DOWN JMJD1C_63 SAMPLES:
+>ln -s /mnt/share/acmo/AppCOmics_data/RNAseq/rawData/SRR1657529.fastq #JMJD1C_63_rep1
+>ln -s /mnt/share/acmo/AppCOmics_data/RNAseq/rawData/SRR1657530.fastq #JMJD1C_63_rep2
+
+#C. TRANSCRIPTOME:
+>ln -s /mnt/share/acmo/AppCOmics_data/RNAseq/rawData/gencode.v39.transcriptome.idx #human transcriptome (genecodev.39)
+
+#RESERVE A RESOURCE FOR 3 HOURS:
+> oarsub -l walltime=3:00 -I
+
+#ALIGN THE RNASEQ DATA TO THE HUMAN TRANSCRIPTOME:
+>docker run -v /home:/home/ -w=$PWD --rm zlskidmore/kallisto:0.46.0 kallisto quant -i gencode.v39.transcriptome.idx -o Control_rep1 --single -t 8 -l 250 -s 50 SRR1657527.fastq
+>docker run -v /home:/home/ -w=$PWD --rm zlskidmore/kallisto:0.46.0 kallisto quant -i gencode.v39.transcriptome.idx -o Control_rep2 --single -t 8 -l 250 -s 50 SRR1657528.fastq
+
+>docker run -v /home:/home/ -w=$PWD --rm zlskidmore/kallisto:0.46.0 kallisto quant -i gencode.v39.transcriptome.idx -o JMJD1C_63_rep1 --single -t 8 -l 250 -s 50 SRR1657529.fastq
+>docker run -v /home:/home/ -w=$PWD --rm zlskidmore/kallisto:0.46.0 kallisto quant -i gencode.v39.transcriptome.idx -o JMJD1C_63_rep2 --single -t 8 -l 250 -s 50 SRR1657530.fastq
