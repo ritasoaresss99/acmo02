@@ -1,3 +1,7 @@
+#This practical tutorial will perform differential gene expression analysis using R packages. 
+#Most steps will be performed using edgeR R package, which complete tutorial can be found here: https://www.bioconductor.org/packages/release/bioc/vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf
+
+
 #########################################################################################################################
 # Install packages from R and BioConductor repositories ####
 #########################################################################################################################
@@ -109,5 +113,6 @@ pdf("PCA_plots.pdf") # open pdf file
 biplot(pca.res, colby="sampleTypes", hline = 0, vline = 0,legendPosition = 'top') # Biplot with colors by sample type
 plotloadings(pca.res, components = c("PC1", "PC2", "PC3"),rangeRetain =0.1) 
 dev.off() # closes pdf file
+
 
 
